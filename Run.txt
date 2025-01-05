@@ -1,0 +1,8 @@
+# Create environment
+conda create --name RIM python=3.11
+
+# Activate environment
+conda activate RIM
+
+# Run the python code
+python Main.py
