@@ -6,7 +6,6 @@ from tkinter import scrolledtext
 from tkinter import ttk
 from itertools import product
 from sklearn.model_selection import KFold
-from threading import Thread
 
 def open_directory( directory_path ):
     """
