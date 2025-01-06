@@ -2,6 +2,11 @@ import tkinter as tk, pandas as pd, numpy as np
 import Python.Multistage_Stochastic as Multistage_Stochastic
 import os, time
 from tkinter import filedialog
+from tkinter import scrolledtext
+from tkinter import ttk
+from itertools import product
+from sklearn.model_selection import KFold
+from threading import Thread
 
 def open_directory( directory_path ):
     """
@@ -216,19 +221,19 @@ def Check_Button_State_Hyperparameter():
         other_max_depth_radio.config( state = tk.NORMAL )
         input_max_depth_other.config( state = tk.NORMAL )
         if input_epsilon_lb.get() == "":
-            input_epsilon_lb.insert( 0, "0.001" )
+            input_epsilon_lb.insert( 0, "0.1" )
         input_epsilon_ub.config( state = tk.NORMAL )
         if input_epsilon_ub.get() == "":
-            input_epsilon_ub.insert( 0, "10" )
+            input_epsilon_ub.insert( 0, "1" )
         input_epsilon_num.config( state = tk.NORMAL )
         if input_epsilon_num.get() == "":
-            input_epsilon_num.insert( 0, "41" )
+            input_epsilon_num.insert( 0, "10" )
         input_omega_lb.config( state = tk.NORMAL )
         if input_omega_lb.get() == "":
             input_omega_lb.insert( 0, "0.1" )
         input_omega_ub.config( state = tk.NORMAL )
         if input_omega_ub.get() == "":
-            input_omega_ub.insert( 0, "0.7" )
+            input_omega_ub.insert( 0, "0.3" )
         input_omega_increment.config( state = tk.NORMAL )
         if input_omega_increment.get() == "":
             input_omega_increment.insert( 0, "0.1" )
@@ -794,12 +799,15 @@ def Run():
                     max_depth_space = input_max_depth_other.get().split( "," )
                     max_depth_space = [int( max_depth ) for max_depth in max_depth_space]
                 
+                # Set the maximum of the progress bar
+                progress_bar["maximum"] = len( epsilon_space ) * len( omega_space ) * len( n_estimators_space ) * len( max_depth_space )
+                
                 if kfold_radioVar.get() == 5: # 5-fold CV
-                    x_opt, X_opt = Multistage_Stochastic.Cross_Validation( historical_data, c, h, b, x_bar, 5, epsilon_space, omega_space, n_estimators_space, max_depth_space )
+                    x_opt, X_opt = Cross_Validation( historical_data, c, h, b, x_bar, 5, epsilon_space, omega_space, n_estimators_space, max_depth_space )
                 elif kfold_radioVar.get() == 10: # 10-fold CV
-                    x_opt, X_opt = Multistage_Stochastic.Cross_Validation( historical_data, c, h, b, x_bar, 10, epsilon_space, omega_space, n_estimators_space, max_depth_space )
+                    x_opt, X_opt = Cross_Validation( historical_data, c, h, b, x_bar, 10, epsilon_space, omega_space, n_estimators_space, max_depth_space )
                 else:
-                    x_opt, X_opt = Multistage_Stochastic.Cross_Validation( historical_data, c, h, b, x_bar, int( input_kfold.get() ), epsilon_space, omega_space, n_estimators_space, max_depth_space )
+                    x_opt, X_opt = Cross_Validation( historical_data, c, h, b, x_bar, int( input_kfold.get() ), epsilon_space, omega_space, n_estimators_space, max_depth_space )
             else: # Specific
                 epsilon_N = float( input_epsilon_N.get() )
                 omega = float( input_omega.get() )
@@ -886,12 +894,15 @@ def Run():
                     max_depth_space = input_max_depth_other.get().split( "," )
                     max_depth_space = [int( max_depth ) for max_depth in max_depth_space]
                 
+                # Set the maximum of the progress bar
+                progress_bar["maximum"] = len( epsilon_space ) * len( omega_space ) * len( n_estimators_space ) * len( max_depth_space )
+                
                 if kfold_radioVar.get() == 5: # 5-fold CV
-                    x_opt, X_opt = Multistage_Stochastic.Cross_Validation( historical_data, c, h, b, x_bar, 5, epsilon_space, omega_space, n_estimators_space, max_depth_space )
+                    x_opt, X_opt = Cross_Validation( historical_data, c, h, b, x_bar, 5, epsilon_space, omega_space, n_estimators_space, max_depth_space )
                 elif kfold_radioVar.get() == 10: # 10-fold CV
-                    x_opt, X_opt = Multistage_Stochastic.Cross_Validation( historical_data, c, h, b, x_bar, 10, epsilon_space, omega_space, n_estimators_space, max_depth_space )
+                    x_opt, X_opt = Cross_Validation( historical_data, c, h, b, x_bar, 10, epsilon_space, omega_space, n_estimators_space, max_depth_space )
                 else:
-                    x_opt, X_opt = Multistage_Stochastic.Cross_Validation( historical_data, c, h, b, x_bar, int( input_kfold.get() ), epsilon_space, omega_space, n_estimators_space, max_depth_space )
+                    x_opt, X_opt = Cross_Validation( historical_data, c, h, b, x_bar, int( input_kfold.get() ), epsilon_space, omega_space, n_estimators_space, max_depth_space )
             else: # Specific
                 epsilon_N = float( input_epsilon_N.get() )
                 omega = float( input_omega.get() )
@@ -923,10 +934,62 @@ def Run():
         
         window.destroy()
 
+def Cross_Validation( historical, c, h, b, x_bar, n_splits, epsilon_space, omega_space, n_estimators_space, max_depth_space, random_seed = 320426 ):
+    tk.messagebox.showinfo( "Reminder", "Please don't click any buttons during the cross validation!" )
+    # Using K-fold cross validation find the optimal hyperparameters
+    best_dict = {
+        'valid_cost': np.inf,
+        'valid_service_level': np.inf,
+        'epsilon_N': None,
+        'omega': None,
+        'n_estimators': None,
+        'max_depth': None
+    }
+    kf = KFold( n_splits = n_splits, shuffle = True, random_state = random_seed )
+    combination_idx = 1
+    for epsilon_N, omega, n_estimators, max_depth in product( epsilon_space, omega_space, n_estimators_space, max_depth_space ):
+        valid_cost = np.zeros( n_splits )
+        valid_service_level = np.zeros( n_splits )
+        for i, ( train_index, valid_index ) in enumerate( kf.split( historical ) ):
+            train_historical = historical[train_index, :]
+            valid_historical = historical[valid_index, :]
+            
+            x_opt, X_opt = Multistage_Stochastic.Specific( train_historical, c, h, b, x_bar, epsilon_N, omega, n_estimators, max_depth, random_seed = random_seed )
+            valid_decision = Multistage_Stochastic.Generate_Decision( valid_historical.shape[0], valid_historical.shape[1], valid_historical, x_opt, X_opt, x_bar )
+            valid_cost[i], valid_service_level[i] = Multistage_Stochastic.Compute_Cost( valid_historical.shape[0], valid_historical.shape[1], valid_historical, valid_decision, c, h, b )
+        
+        average_valid_cost = np.mean( valid_cost )
+        average_valid_service_level = np.mean( valid_service_level )
+        # print( f'epsilon_N = {epsilon_N:.4f}, omega = {omega:.2f}, n_estimators = {n_estimators}, max_depth = {max_depth}, valid_cost = {average_valid_cost:.4f}, valid_service_level = {average_valid_service_level:.2f}' )
+        text_area.insert( tk.END, f"epsilon_N = {epsilon_N:.4f}, omega = {omega:.2f}, n_estimators = {n_estimators}, max_depth = {max_depth}, valid_cost = {average_valid_cost:.4f}, valid_service_level = {average_valid_service_level:.2f}\n" )
+        text_area.see( tk.END )
+        if average_valid_cost < best_dict['valid_cost']:
+            best_dict['valid_cost'] = average_valid_cost
+            best_dict['valid_service_level'] = average_valid_service_level
+            best_dict['epsilon_N'] = epsilon_N
+            best_dict['omega'] = omega
+            best_dict['n_estimators'] = n_estimators
+            best_dict['max_depth'] = max_depth
+            # print( 'New best hyperparameters found!' )
+            text_area.insert( tk.END, "New best hyperparameters found!\n" )
+            text_area.see( tk.END )
+        # print( '-.' * 50 )
+        text_area.insert( tk.END, '-.' * 60 + '\n' )
+        text_area.see( tk.END )
+        progress_var.set( combination_idx )
+        combination_idx += 1
+        window.update_idletasks()
+    
+    # Fit the model using the best hyperparameters
+    x_opt, X_opt = Multistage_Stochastic.Specific( historical, c, h, b, x_bar, best_dict['epsilon_N'], best_dict['omega'], best_dict['n_estimators'], best_dict['max_depth'], random_seed = random_seed )
+    
+    return x_opt, X_opt
+
 # Create the main window
 window = tk.Tk()
 window.title( "Robust Inventory Management" )
-window.geometry( "790x810" )
+window.geometry( "900x985+20+5" )
+# window.attributes( '-fullscreen', True )
 window.resizable( False, False )
 
 row_idx = 0
@@ -937,13 +1000,13 @@ lb_function = tk.Label( window, text = "Function:", height = 1, font = ( "Arial"
 function_radioVar = tk.IntVar()
 train_radio = tk.Radiobutton( window, text = "Train new model", variable = function_radioVar, value = 1, command = Check_State_Function )
 train_radio.select()
-load_radio = tk.Radiobutton( window, text = "Load in pre-trained model", variable = function_radioVar, value = 2, command = Check_State_Function )
+load_radio = tk.Radiobutton( window, text = "Make future decisions", variable = function_radioVar, value = 2, command = Check_State_Function )
 train_decide_radio = tk.Radiobutton( window, text = "Train and make future decisions", variable = function_radioVar, value = 3, command = Check_State_Function )
 # Locate widget
 lb_function.grid( row = row_idx, column = 0, padx = 5, pady = 5, sticky = tk.W )
 train_radio.grid( row = row_idx, column = 1, columnspan = 2, padx = 5, pady = 5, sticky = tk.W )
-load_radio.grid( row = row_idx, column = 3, columnspan = 2, padx = 5, pady = 5, sticky = tk.W )
-train_decide_radio.grid( row = row_idx, column = 5, columnspan = 2, padx = 5, pady = 5, sticky = tk.W )
+load_radio.grid( row = row_idx, column = 3, columnspan = 3, padx = 5, pady = 5, sticky = tk.W )
+train_decide_radio.grid( row = row_idx, column = 6, columnspan = 2, padx = 5, pady = 5, sticky = tk.W )
 row_idx += 1
 
 #* Folder used to save the results
@@ -954,7 +1017,7 @@ save_checkbutton_False = tk.IntVar()
 save_checkbutton_True1 = tk.Checkbutton( window, text = "True", variable = save_checkbutton_True, command = Check_Button_State_Save )
 save_checkbutton_False1 = tk.Checkbutton( window, text = "False", variable = save_checkbutton_False, command = Check_Button_State_Save )
 lb_folder = tk.Label( window, text = "Folder:", height = 1, font = ( "Arial", 12 ) )
-input_save = tk.Entry( window, width = 42 )
+input_save = tk.Entry( window, width = 41 )
 input_save_btn = tk.Button( window, text = "...", height = 1, command = Save_Path )
 # Locate widget
 lb_save.grid( row = row_idx, column = 0, padx = 5, pady = 5, sticky = tk.W )
@@ -968,7 +1031,7 @@ row_idx += 1
 #* Load in historical demand data
 # Add widget
 lb_historical = tk.Label( window, text = "Historical Data:", height = 1, font = ( "Arial", 12 ) )
-loadFile_historical = tk.Entry( window, width = 85, state = tk.NORMAL )
+loadFile_historical = tk.Entry( window, width = 91, state = tk.NORMAL )
 loadFile_historical_btn = tk.Button( window, text = "...", height = 1, command = loadFile_Historical, state = tk.NORMAL )
 # Locate widget
 lb_historical.grid( row = row_idx, column = 0, padx = 5, pady = 5, sticky = tk.W )
@@ -979,7 +1042,7 @@ row_idx += 1
 #* Load in future demand data
 # Add widget
 lb_future = tk.Label( window, text = "Future Data:", height = 1, font = ( "Arial", 12 ) )
-loadFile_future = tk.Entry( window, width = 85, state = tk.DISABLED )
+loadFile_future = tk.Entry( window, width = 91, state = tk.DISABLED )
 loadFile_future_btn = tk.Button( window, text = "...", height = 1, command = loadFile_Future, state = tk.DISABLED )
 # Locate widget
 lb_future.grid( row = row_idx, column = 0, padx = 5, pady = 5, sticky = tk.W )
@@ -990,7 +1053,7 @@ row_idx += 1
 #* Load in pre-trained intercept
 # Add widget
 lb_intercept = tk.Label( window, text = "Intercept:", height = 1, font = ( "Arial", 12 ) )
-loadFile_intercept = tk.Entry( window, width = 85, state = tk.DISABLED )
+loadFile_intercept = tk.Entry( window, width = 91, state = tk.DISABLED )
 loadFile_intercept_btn = tk.Button( window, text = "...", height = 1, command = loadFile_Intercept, state = tk.DISABLED )
 # Locate widget
 lb_intercept.grid( row = row_idx, column = 0, padx = 5, pady = 5, sticky = tk.W )
@@ -1001,7 +1064,7 @@ row_idx += 1
 #* Load in pre-trained uncertainty
 # Add widget
 lb_uncertainty = tk.Label( window, text = "Uncertainty:", height = 1, font = ( "Arial", 12 ) )
-loadFile_uncertainty = tk.Entry( window, width = 85, state = tk.DISABLED )
+loadFile_uncertainty = tk.Entry( window, width = 91, state = tk.DISABLED )
 loadFile_uncertainty_btn = tk.Button( window, text = "...", height = 1, command = loadFile_Uncertainty, state = tk.DISABLED )
 # Locate widget
 lb_uncertainty.grid( row = row_idx, column = 0, padx = 5, pady = 5, sticky = tk.W )
@@ -1014,16 +1077,16 @@ row_idx += 1
 production_radioVar = tk.IntVar()
 lb_production = tk.Label( window, text = "Production Cost:", height = 1, font = ( "Arial", 12 ) )
 production_single_radio = tk.Radiobutton( window, text = "Single", variable = production_radioVar, value = 1, state = tk.NORMAL )
-input_production_single = tk.Entry( window, width = 30, state = tk.NORMAL )
+input_production_single = tk.Entry( window, width = 10, state = tk.NORMAL )
 production_multi_radio = tk.Radiobutton( window, text = "Multi", variable = production_radioVar, value = 2, state = tk.NORMAL )
-loadFile_production = tk.Entry( window, width = 30, state = tk.NORMAL )
+loadFile_production = tk.Entry( window, width = 47, state = tk.NORMAL )
 loadFile_production_btn = tk.Button( window, text = "...", height = 1, command = loadFile_Production, state = tk.NORMAL )
 # Locate widget
 lb_production.grid( row = row_idx, column = 0, padx = 5, pady = 5, sticky = tk.W )
 production_single_radio.grid( row = row_idx, column = 1, padx = 5, pady = 5, sticky = tk.W )
-input_production_single.grid( row = row_idx, column = 2, columnspan = 2, padx = 5, pady = 5, sticky = tk.W )
-production_multi_radio.grid( row = row_idx, column = 4, padx = 5, pady = 5, sticky = tk.W )
-loadFile_production.grid( row = row_idx, column = 5, columnspan = 2, padx = 5, pady = 5, sticky = tk.W )
+input_production_single.grid( row = row_idx, column = 2, padx = 5, pady = 5, sticky = tk.W )
+production_multi_radio.grid( row = row_idx, column = 3, padx = 5, pady = 5, sticky = tk.W )
+loadFile_production.grid( row = row_idx, column = 4, columnspan = 3, padx = 5, pady = 5, sticky = tk.W )
 loadFile_production_btn.grid( row = row_idx, column = 7, padx = 5, pady = 5, sticky = tk.W )
 row_idx += 1
 
@@ -1032,16 +1095,16 @@ row_idx += 1
 holding_radioVar = tk.IntVar()
 lb_holding = tk.Label( window, text = "Holding Cost:", height = 1, font = ( "Arial", 12 ) )
 holding_single_radio = tk.Radiobutton( window, text = "Single", variable = holding_radioVar, value = 1, state = tk.NORMAL )
-input_holding_single = tk.Entry( window, width = 30, state = tk.NORMAL )
+input_holding_single = tk.Entry( window, width = 10, state = tk.NORMAL )
 holding_multi_radio = tk.Radiobutton( window, text = "Multi", variable = holding_radioVar, value = 2, state = tk.NORMAL )
-loadFile_holding = tk.Entry( window, width = 30, state = tk.NORMAL )
+loadFile_holding = tk.Entry( window, width = 47, state = tk.NORMAL )
 loadFile_holding_btn = tk.Button( window, text = "...", height = 1, command = loadFile_Holding, state = tk.NORMAL )
 # Locate widget
 lb_holding.grid( row = row_idx, column = 0, padx = 5, pady = 5, sticky = tk.W )
 holding_single_radio.grid( row = row_idx, column = 1, padx = 5, pady = 5, sticky = tk.W )
-input_holding_single.grid( row = row_idx, column = 2, columnspan = 2, padx = 5, pady = 5, sticky = tk.W )
-holding_multi_radio.grid( row = row_idx, column = 4, padx = 5, pady = 5, sticky = tk.W )
-loadFile_holding.grid( row = row_idx, column = 5, columnspan = 2, padx = 5, pady = 5, sticky = tk.W )
+input_holding_single.grid( row = row_idx, column = 2, padx = 5, pady = 5, sticky = tk.W )
+holding_multi_radio.grid( row = row_idx, column = 3, padx = 5, pady = 5, sticky = tk.W )
+loadFile_holding.grid( row = row_idx, column = 4, columnspan = 3, padx = 5, pady = 5, sticky = tk.W )
 loadFile_holding_btn.grid( row = row_idx, column = 7, padx = 5, pady = 5, sticky = tk.W )
 row_idx += 1
 
@@ -1050,16 +1113,16 @@ row_idx += 1
 backorder_radioVar = tk.IntVar()
 lb_backorder = tk.Label( window, text = "Backorder Cost:", height = 1, font = ( "Arial", 12 ) )
 backorder_single_radio = tk.Radiobutton( window, text = "Single", variable = backorder_radioVar, value = 1, state = tk.NORMAL )
-input_backorder_single = tk.Entry( window, width = 30, state = tk.NORMAL )
+input_backorder_single = tk.Entry( window, width = 10, state = tk.NORMAL )
 backorder_multi_radio = tk.Radiobutton( window, text = "Multi", variable = backorder_radioVar, value = 2, state = tk.NORMAL )
-loadFile_backorder = tk.Entry( window, width = 30, state = tk.NORMAL )
+loadFile_backorder = tk.Entry( window, width = 47, state = tk.NORMAL )
 loadFile_backorder_btn = tk.Button( window, text = "...", height = 1, command = loadFile_Backorder, state = tk.NORMAL )
 # Locate widget
 lb_backorder.grid( row = row_idx, column = 0, padx = 5, pady = 5, sticky = tk.W )
 backorder_single_radio.grid( row = row_idx, column = 1, padx = 5, pady = 5, sticky = tk.W )
-input_backorder_single.grid( row = row_idx, column = 2, columnspan = 2, padx = 5, pady = 5, sticky = tk.W )
-backorder_multi_radio.grid( row = row_idx, column = 4, padx = 5, pady = 5, sticky = tk.W )
-loadFile_backorder.grid( row = row_idx, column = 5, columnspan = 2, padx = 5, pady = 5, sticky = tk.W )
+input_backorder_single.grid( row = row_idx, column = 2, padx = 5, pady = 5, sticky = tk.W )
+backorder_multi_radio.grid( row = row_idx, column = 3, padx = 5, pady = 5, sticky = tk.W )
+loadFile_backorder.grid( row = row_idx, column = 4, columnspan = 3, padx = 5, pady = 5, sticky = tk.W )
 loadFile_backorder_btn.grid( row = row_idx, column = 7, padx = 5, pady = 5, sticky = tk.W )
 row_idx += 1
 
@@ -1068,17 +1131,17 @@ row_idx += 1
 capacity_radioVar = tk.IntVar()
 lb_capacity = tk.Label( window, text = "Capacity:", height = 1, font = ( "Arial", 12 ) )
 capacity_single_radio = tk.Radiobutton( window, text = "Single", variable = capacity_radioVar, value = 1, state = tk.NORMAL )
-input_capacity_single = tk.Entry( window, width = 30, state = tk.NORMAL )
+input_capacity_single = tk.Entry( window, width = 10, state = tk.NORMAL )
 capacity_multi_radio = tk.Radiobutton( window, text = "Multi", variable = capacity_radioVar, value = 2, state = tk.NORMAL )
-loadFile_capacity = tk.Entry( window, width = 30, state = tk.NORMAL )
+loadFile_capacity = tk.Entry( window, width = 47, state = tk.NORMAL )
 loadFile_capacity_btn = tk.Button( window, text = "...", height = 1, command = loadFile_Capacity, state = tk.NORMAL )
 
 # Locate widget
 lb_capacity.grid( row = row_idx, column = 0, padx = 5, pady = 5, sticky = tk.W )
 capacity_single_radio.grid( row = row_idx, column = 1, padx = 5, pady = 5, sticky = tk.W )
-input_capacity_single.grid( row = row_idx, column = 2, columnspan = 2, padx = 5, pady = 5, sticky = tk.W )
-capacity_multi_radio.grid( row = row_idx, column = 4, padx = 5, pady = 5, sticky = tk.W )
-loadFile_capacity.grid( row = row_idx, column = 5, columnspan = 2, padx = 5, pady = 5, sticky = tk.W )
+input_capacity_single.grid( row = row_idx, column = 2, padx = 5, pady = 5, sticky = tk.W )
+capacity_multi_radio.grid( row = row_idx, column = 3, padx = 5, pady = 5, sticky = tk.W )
+loadFile_capacity.grid( row = row_idx, column = 4, columnspan = 3, padx = 5, pady = 5, sticky = tk.W )
 loadFile_capacity_btn.grid( row = row_idx, column = 7, padx = 5, pady = 5, sticky = tk.W )
 row_idx += 1
 
@@ -1098,7 +1161,7 @@ row_idx += 1
 #! Cross-Validation area
 #* Labelframe
 # Add widget
-cv_area = tk.LabelFrame( window, text = "Cross-Validation", height = 1, font = ( "Arial", 12 ), width = 300 )
+cv_area = tk.LabelFrame( window, text = "Cross-Validation", height = 1, font = ( "Arial", 12 ), width = 250 )
 # Locate widget
 cv_area.grid( row = row_idx, column = 0, columnspan = 8, padx = 5, pady = 5 )
 
@@ -1261,6 +1324,16 @@ input_max_depth = tk.Entry( specific_area, width = 60, state = tk.DISABLED )
 lb_max_depth.grid( row = row_idx, column = 0, padx = 5, pady = 5, sticky = tk.W )
 input_max_depth.grid( row = row_idx, column = 1, columnspan = 5, padx = 5, pady = 5, sticky = tk.W )
 row_idx += 1
+
+#* Show progress area
+# Add widget
+text_area = scrolledtext.ScrolledText( window, width = 125, height = 10 )
+progress_var = tk.IntVar()
+progress_bar = ttk.Progressbar( window, variable = progress_var, length = 400 )
+# Locate widget
+text_area.grid( row = row_idx, column = 0, columnspan = 8, padx = 5, pady = 5 )
+progress_bar.grid( row = row_idx + 1, column = 0, columnspan = 8, padx = 5, pady = 5 )
+row_idx += 2
 
 #* Cancel / Run button
 # Add widget
