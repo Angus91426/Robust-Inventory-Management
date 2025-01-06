@@ -4,5 +4,8 @@ conda create --name RIM python=3.11
 # Activate environment
 conda activate RIM
 
+# Install related packages
+pip install -r requirement.txt
+
 # Run the python code
 python Main.py
