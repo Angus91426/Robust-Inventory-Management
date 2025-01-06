@@ -821,9 +821,9 @@ def Run():
                 if not os.path.exists( save_folder ):
                     os.makedirs( save_folder, exist_ok = True )
                 
-                intercept_df = pd.DataFrame( x_opt, columns = [f'Stage {t + 1}' for t in range( Num_of_Stages )] )
+                intercept_df = pd.DataFrame( x_opt )
                 intercept_df.to_csv( os.path.join( save_folder, "intercept.csv" ), index = False )
-                uncertainty_df = pd.DataFrame( X_opt, columns = [f'Stage {t + 1}' for t in range( Num_of_Stages )] )
+                uncertainty_df = pd.DataFrame( X_opt )
                 uncertainty_df.to_csv( os.path.join( save_folder, "uncertainty.csv" ), index = False )
                 
                 tk.messagebox.showinfo( "Information", "The pre-trained model has been saved in the folder: " + save_folder )
@@ -924,12 +924,16 @@ def Run():
                 if not os.path.exists( save_folder ):
                     os.makedirs( save_folder, exist_ok = True )
                 
+                if len( decision_x.shape ) == 1:
+                    future_df = pd.DataFrame( decision_x, columns = [f'Stage {t + 1}' for t in range( len( decision_x ) )] )
+                else:
+                    future_df = pd.DataFrame( decision_x, columns = [f'Stage {t + 1}' for t in range( decision_x.shape[1] )] )
+                future_df.to_csv( os.path.join( save_folder, "future.csv" ), index = False )
+                
                 intercept_df = pd.DataFrame( x_opt )
                 intercept_df.to_csv( os.path.join( save_folder, "intercept.csv" ), index = False )
                 uncertainty_df = pd.DataFrame( X_opt )
                 uncertainty_df.to_csv( os.path.join( save_folder, "uncertainty.csv" ), index = False )
-                future_df = pd.DataFrame( decision_x )
-                future_df.to_csv( os.path.join( save_folder, "future.csv" ), index = False )
                 
                 tk.messagebox.showinfo( "Information", "The results have been saved in the folder: " + save_folder )
                 
